@@ -9,7 +9,8 @@
     "test": "jest",
     "test:watch": "jest --watch",
     "lint": "eslint src/**/*.ts",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "npm run build",
+    "prepare": "npm run build"
   },
   "keywords": [
     "lennox",
@@ -23,12 +24,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/lukealonso/lennoxapi.git"
+    "url": "https://github.com/pateboyd/lennoxapi.git"
   },
   "bugs": {
-    "url": "https://github.com/lukealonso/lennoxapi/issues"
+    "url": "https://github.com/pateboyd/lennoxapi/issues"
   },
-  "homepage": "https://github.com/lukealonso/lennoxapi#readme",
+  "homepage": "https://github.com/pateboyd/lennoxapi#readme",
   "devDependencies": {
     "@types/jest": "^29.5.12",
     "@types/node": "^20.11.0",
