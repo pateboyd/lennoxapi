@@ -19,6 +19,8 @@ describe('Temperature Setpoints', () => {
       system = api.systems[0];
       zone = system.getZone(0)!;
       
+      // Existing unit tests exercise direct manual updates.
+      zone.scheduleId = zone.getManualModeScheduleId();
       // Set up zone with initial values
       zone.csp = 77;
       zone.cspC = 25.0;
@@ -199,6 +201,8 @@ describe('Temperature Setpoints', () => {
       system = api.systems[0];
       zone = system.getZone(0)!;
       
+      // Existing unit tests exercise direct manual updates.
+      zone.scheduleId = zone.getManualModeScheduleId();
       // Set up zone with initial values
       zone.sp = 72;
       zone.spC = 22.0;
@@ -286,15 +290,19 @@ describe('Humidity Setpoints', () => {
     
     await zone.performHumidifySetpoint({ husp: 40 });
     
-    expect(publishSpy).toHaveBeenCalledTimes(1);
-    const data = extractPublishedData(publishSpy as jest.Mock)!;
+    expect(publishSpy).toHaveBeenCalledTimes(3);
+    const data = publishSpy.mock.calls[2][1] as Record<string, unknown>;
     
     const schedules = data.schedules as Array<{id: number; schedule: {periods: Array<{period: Record<string, unknown>}>}}>;
-    // Should always go to manual mode schedule
-    expect(schedules[0].id).toBe(zone.getManualModeScheduleId());
+    // A scheduled zone receives a temporary override, not an ignored manual write.
+    expect(schedules[0].id).toBe(zone.getOverrideScheduleId());
     
+    expect(schedules[0].id).toBe(zone.getOverrideScheduleId());
     const period = schedules[0].schedule.periods[0].period;
     expect(period.husp).toBe(40);
+    const hold = publishSpy.mock.calls[1][1] as any;
+    expect(hold.zones[0].config.scheduleHold.enabled).toBe(true);
+    expect(hold.zones[0].config.scheduleHold.expirationMode).toBe('nextPeriod');
   });
 
   it('should set dehumidify setpoint', async () => {
@@ -304,10 +312,11 @@ describe('Humidity Setpoints', () => {
     
     await zone.performHumidifySetpoint({ desp: 55 });
     
-    expect(publishSpy).toHaveBeenCalledTimes(1);
-    const data = extractPublishedData(publishSpy as jest.Mock)!;
+    expect(publishSpy).toHaveBeenCalledTimes(3);
+    const data = publishSpy.mock.calls[2][1] as Record<string, unknown>;
     
     const schedules = data.schedules as Array<{id: number; schedule: {periods: Array<{period: Record<string, unknown>}>}}>;
+    expect(schedules[0].id).toBe(zone.getOverrideScheduleId());
     const period = schedules[0].schedule.periods[0].period;
     expect(period.desp).toBe(55);
   });

@@ -232,6 +232,7 @@ describe('Fan Mode', () => {
     api = createTestApi();
     system = api.systems[0];
     zone = system.getZone(0)!;
+    zone.scheduleId = zone.getManualModeScheduleId();
     
     // Set up zone
     zone.fanMode = 'auto';
@@ -285,6 +286,7 @@ describe('HVAC Mode', () => {
     api = createTestApi();
     system = api.systems[0];
     zone = system.getZone(0)!;
+    zone.scheduleId = zone.getManualModeScheduleId();
     
     // Set up zone with heating and cooling options
     zone.heatingOption = true;
@@ -358,6 +360,7 @@ describe('Humidity Mode', () => {
     api = createTestApi();
     system = api.systems[0];
     zone = system.getZone(0)!;
+    zone.scheduleId = zone.getManualModeScheduleId();
     
     zone.fanMode = 'auto';
     zone.systemMode = 'heat and cool';
