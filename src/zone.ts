@@ -688,7 +688,7 @@ export class LennoxZone {
     }
 
     // HVAC mode changes intentionally leave a named schedule for manual mode.
-    if (!this.isZoneManualMode()) await this.setManualMode();
+    if (this.scheduleId !== null && !this.isZoneManualMode()) await this.setManualMode();
     await this.system.setHVACMode(mode, this.getManualModeScheduleId());
     this.processPeriod({ systemMode: mode });
     this.executeOnUpdateCallbacks();
