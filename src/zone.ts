@@ -263,8 +263,7 @@ export class LennoxZone {
    * Check if zone is in manual mode
    */
   isZoneManualMode(): boolean {
-    if (this.scheduleId === null) return false;
-    return this.scheduleId >= LENNOX_MANUAL_MODE_SCHEDULE_START_INDEX;
+    return this.scheduleId === this.getManualModeScheduleId();
   }
 
   /**
@@ -285,8 +284,12 @@ export class LennoxZone {
    * Get the away mode schedule ID for this zone
    */
   getAwayModeScheduleId(): number {
-    // Away schedule is at index 3 in Python implementation
-    return 3;
+    // Away schedules are per-zone, not the global schedule index 3.
+    return 24 + this.id;
+  }
+
+  getOverrideScheduleId(): number {
+    return 32 + this.id;
   }
 
   /**
@@ -315,6 +318,14 @@ export class LennoxZone {
       this.attrUpdater(config, 'maxDehumSp');
       this.attrUpdater(config, 'minDehumSp');
       this.attrUpdater(config, 'scheduleId');
+      // S30 nests hold state under config; it is not a new active scheduleId.
+      if ('scheduleHold' in config) {
+        const hold = config.scheduleHold as Record<string, unknown>;
+        this.attrUpdater(hold, 'enabled', 'scheduleHold');
+        if (typeof hold.enabled === 'boolean') {
+          this.attrUpdater({ overrideActive: hold.enabled }, 'overrideActive');
+        }
+      }
     }
 
     // Status section
@@ -346,12 +357,13 @@ export class LennoxZone {
       }
     }
 
-    // Schedule hold
+    // Older messages occasionally put hold state at the zone root.
     if ('scheduleHold' in data) {
       const holdData = data.scheduleHold as Record<string, unknown>;
       this.attrUpdater(holdData, 'enabled', 'scheduleHold');
-      this.attrUpdater(holdData, 'scheduleId');
-      this.attrUpdater(holdData, 'overrideActive');
+      if (typeof holdData.enabled === 'boolean') {
+        this.attrUpdater({ overrideActive: holdData.enabled }, 'overrideActive');
+      }
     }
   }
 
@@ -447,10 +459,33 @@ export class LennoxZone {
    * Get the schedule ID to use for setpoint changes
    */
   private getSetpointScheduleId(): number {
-    if (this.system.getAwayMode()) {
-      return this.getAwayModeScheduleId();
-    }
-    return this.getManualModeScheduleId();
+    if (this.system.getAwayMode()) return this.getAwayModeScheduleId();
+    if (this.scheduleHold === true || this.overrideActive === true ||
+        this.scheduleId === this.getOverrideScheduleId()) return this.getOverrideScheduleId();
+    // No schedule information yet: retain the original manual-mode behavior.
+    if (this.scheduleId === null || this.isZoneManualMode()) return this.getManualModeScheduleId();
+    return this.getOverrideScheduleId();
+  }
+
+  /**
+   * A named schedule ignores writes to manual (16 + zone). Copy the currently
+   * running period to the zone's override slot and activate a next-period hold.
+   * Preserve Perfect Temp's single-setpoint mode: this never writes parameter 525.
+   */
+  private async prepareSetpointSchedule(): Promise<number> {
+    const scheduleId = this.getSetpointScheduleId();
+    if (scheduleId !== this.getOverrideScheduleId() ||
+        this.scheduleHold === true || this.overrideActive === true ||
+        this.scheduleId === this.getOverrideScheduleId()) return scheduleId;
+
+    await this.system.api.publishMessage(this.system.sysId, {
+      schedules: [{
+        id: scheduleId,
+        schedule: { periods: [{ id: 0, period: this.buildPeriod({}) }] },
+      }],
+    });
+    await this.setScheduleHold(true);
+    return scheduleId;
   }
 
   /**
@@ -479,7 +514,7 @@ export class LennoxZone {
   async performSetpoint(options: SetpointOptions): Promise<void> {
     this.validateSetpoints(options);
 
-    const scheduleId = this.getSetpointScheduleId();
+    const scheduleId = await this.prepareSetpointSchedule();
     const { hsp: rHsp, hspC: rHspC, csp: rCsp, cspC: rCspC, sp: rSp, spC: rSpC } = options;
 
     let hsp: number | undefined;
@@ -563,7 +598,9 @@ export class LennoxZone {
     if (sp !== undefined) periodUpdate.sp = sp;
     if (spC !== undefined) periodUpdate.spC = spC;
 
-    const period = this.buildPeriod(periodUpdate);
+    // Publish only setpoint fields to avoid reverting mode/fan/humidity
+    // to stale values. Full-period copies are reserved for initial overrides.
+    const period = periodUpdate;
 
     const data = {
       schedules: [{
@@ -586,7 +623,7 @@ export class LennoxZone {
    * Set humidity setpoints
    */
   async performHumidifySetpoint(options: HumiditySetpointOptions): Promise<void> {
-    const scheduleId = this.getSetpointScheduleId();
+    const scheduleId = await this.prepareSetpointSchedule();
     const periodUpdate: Record<string, unknown> = {};
 
     if (options.husp !== undefined) {
@@ -596,7 +633,7 @@ export class LennoxZone {
       periodUpdate.desp = options.desp;
     }
 
-    const period = this.buildPeriod(periodUpdate);
+    const period = periodUpdate;
 
     const data = {
       schedules: [{
@@ -650,8 +687,9 @@ export class LennoxZone {
       );
     }
 
-    const scheduleId = this.getSetpointScheduleId();
-    await this.system.setHVACMode(mode, scheduleId);
+    // HVAC mode changes intentionally leave a named schedule for manual mode.
+    if (!this.isZoneManualMode()) await this.setManualMode();
+    await this.system.setHVACMode(mode, this.getManualModeScheduleId());
     this.processPeriod({ systemMode: mode });
     this.executeOnUpdateCallbacks();
   }
@@ -668,7 +706,7 @@ export class LennoxZone {
       );
     }
 
-    const scheduleId = this.getSetpointScheduleId();
+    const scheduleId = await this.prepareSetpointSchedule();
     await this.system.setFanMode(mode, scheduleId);
     this.processPeriod({ fanMode: mode });
     this.executeOnUpdateCallbacks();
@@ -709,7 +747,7 @@ export class LennoxZone {
       );
     }
 
-    const scheduleId = this.getSetpointScheduleId();
+    const scheduleId = await this.prepareSetpointSchedule();
     await this.system.setHumidityMode(mode, scheduleId);
     this.processPeriod({ humidityMode: mode });
     this.executeOnUpdateCallbacks();
@@ -722,8 +760,14 @@ export class LennoxZone {
     const data = {
       zones: [{
         id: this.id,
-        scheduleHold: {
-          enabled: hold,
+        config: {
+          scheduleHold: {
+            scheduleId: this.getOverrideScheduleId(),
+            exceptionType: 'hold',
+            enabled: hold,
+            expiresOn: '0',
+            expirationMode: 'nextPeriod',
+          },
         },
       }],
     };
