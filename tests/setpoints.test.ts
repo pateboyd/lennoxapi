@@ -19,6 +19,8 @@ describe('Temperature Setpoints', () => {
       system = api.systems[0];
       zone = system.getZone(0)!;
       
+      // Existing unit tests exercise direct manual updates.
+      zone.scheduleId = zone.getManualModeScheduleId();
       // Set up zone with initial values
       zone.csp = 77;
       zone.cspC = 25.0;
@@ -199,6 +201,8 @@ describe('Temperature Setpoints', () => {
       system = api.systems[0];
       zone = system.getZone(0)!;
       
+      // Existing unit tests exercise direct manual updates.
+      zone.scheduleId = zone.getManualModeScheduleId();
       // Set up zone with initial values
       zone.sp = 72;
       zone.spC = 22.0;
